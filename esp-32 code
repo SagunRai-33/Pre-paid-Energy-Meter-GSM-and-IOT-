@@ -15,7 +15,7 @@ int StringCount = 0;
 
 
 const char* ssid     = "Mchinary-Lab"; //Replace with your Wifi name
-const char* password = "1234doeee";  //Replace with your Wifi password
+const char* password = "1234doeee";  //Replace with your password
 
 const char* serverName = "http://energymetercustomer.000webhostapp.com/post.php";
 
