@@ -1,0 +1,117 @@
+#ifdef ESP32
+  #include <WiFi.h>
+  #include <HTTPClient.h>
+#else
+  #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClient.h>
+#endif
+#include <Wire.h>
+
+String strs[4];
+int StringCount = 0;
+     
+
+
+
+const char* ssid     = "Mchinary-Lab"; //Replace with your Wifi name
+const char* password = "1234doeee";  //Replace with your Wifi password
+
+const char* serverName = "http://energymetercustomer.000webhostapp.com/post.php";
+
+String apiKeyValue = "tPmAT5Ab3j7F9";
+
+#define RXp2 16
+#define TXp2 17
+
+
+ 
+void setup() {
+  Serial.begin(115200);
+    Serial2.begin(9600, SERIAL_8N1, RXp2, TXp2);
+
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting");
+  while(WiFi.status() != WL_CONNECTED) { 
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+
+ 
+ 
+}
+void loop() {
+    
+  //Check WiFi connection status
+  if(WiFi.status()== WL_CONNECTED){
+   
+    HTTPClient http;
+    
+
+    http.begin(serverName);
+    
+    
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    String str=Serial2.readString();
+    
+     while (str.length() > 0)
+  {
+    int index = str.indexOf(' ');
+    if (index == -1) // No space found
+    {
+      strs[StringCount++] = str;
+      break;
+    }
+    else
+    {
+      strs[StringCount++] = str.substring(0, index);
+      str = str.substring(index+1);
+    }
+  }
+
+  // Show the resulting substrings
+  for (int i = 0; i < StringCount; i++)
+  {
+    //Serial.print(i);
+    //Serial.print(": \"");
+    //Serial.print(strs[i]);
+    //Serial.println("\"");
+  }
+
+    String Power = strs[0];
+  String Energy= strs[1];
+  String Unit=strs[2];
+String Price=strs[3];    
+
+    String httpRequestData = "api_key=" + apiKeyValue + "&Power=" + Power
+                          + "&Energy=" + Energy + "&Unit=" + Unit
+                          + "&Price=" + Price+ "";
+    Serial.print("httpRequestData: ");
+    Serial.println(httpRequestData);
+    
+    int httpResponseCode = http.POST(httpRequestData);
+
+        
+    if (httpResponseCode>0) {
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+    }
+    else {
+      Serial.print("Error code: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  }
+  else {
+    Serial.println("WiFi Disconnected");
+  }
+ 
+delay(5000);  
+}
+
+
