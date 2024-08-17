@@ -1,0 +1,355 @@
+
+#include <LiquidCrystal.h>
+#include <EEPROM.h> //library for LCD 
+#include <SoftwareSerial.h>
+#define RELAY_PIN 5
+#define gsmTempSwitch 6
+#define limitSwitchPin 4
+
+SoftwareSerial SIM900A(3, 2);
+
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8); 
+
+// Measuring Voltage
+#include "EmonLib.h"   
+EnergyMonitor emon1;   
+
+// Measuring Current Using ACS712
+const int CurrentSensorPin = A1; 
+const int VoltageSensorPin = A2;
+int sensitivity = 185; 
+int offsetvoltage = 2542; 
+float EnergyUsedCurrentTime;
+float lastTime=0;
+float Price = 0;
+float Unit;
+int voltage;
+char inchar;
+float power;
+float Energy;
+bool LimitSwitch=0;
+bool LowPriceAssert=0;
+bool RelayAssert = 0;
+bool GsmSwitch=0;
+void setup()
+{
+
+  pinMode(RELAY_PIN,OUTPUT);
+  pinMode(limitSwitchPin,INPUT);
+  pinMode(gsmTempSwitch,INPUT_PULLUP);
+  SIM900A.begin(9600);
+  Serial.begin(9600);
+  Serial.println("Text Messege Module r to receive mesaqge Ready & Verified");
+  delay(100);
+  lcd.begin(20, 4); // set up the LCD's number of columns and rows:
+  lcd.setCursor(0,0);
+  lcd.print("  THE BRIGHT LIGHT    ");
+  lcd.setCursor(0,1);
+  lcd.print("  AC ENERGY METER             ");
+
+  EEPROM.get(0,Price);
+  
+  // EEPROM.put(0,Price);
+  // EEPROM.write(40, 0);
+  // EEPROM.write(41, 0);
+  // Serial.println("fixed the values");
+
+
+
+  LowPriceAssert = EEPROM.read(40);
+  RelayAssert = EEPROM.read(41);
+  //for uplaoding money on the arduino 
+  // Price = 60;
+  // EEPROM.write(0,Price);
+  // Serial.println("setted priced to 60");
+
+ }
+
+
+void loop()
+{
+  //************************* Measure Voltage **************************************
+  // emon1.calcVI(20,2000); // Calculate all. No.of half wavelengths (crossings), time-out
+  // voltage   = emon1.Vrms;  //extract Vrms into Variable
+  // //int voltage=230;
+
+  unsigned int temp=0;
+  int maxpoint = 0;
+  for(int i=0;i<500;i++)
+  {
+    if(temp = analogRead(VoltageSensorPin), temp>maxpoint)
+    {
+      maxpoint = temp;
+    }
+  }
+
+  //--calibrate the voltage--
+  float voltageRef = (float(temp)/1024.f);
+  voltage = int((float(voltageRef)/0.833) * 220.f);
+     //for AC voltage 
+  voltage = ( voltage ) / ( sqrt(2) );
+  
+  //-------TODO Temp Code for simulating read
+  voltage = 220;
+
+
+  //************************* Measure Current **************************************
+  temp = 0;
+  maxpoint = 0;
+  for(int i=0;i<500;i++)
+  {
+    if(temp = analogRead(CurrentSensorPin), temp>maxpoint)
+    {
+      maxpoint = temp;
+    }
+  }
+  float ADCvalue = maxpoint; 
+  double eVoltage = (ADCvalue / 1024.0) * 5000; // Gets you mV
+  double Current = ((eVoltage - offsetvoltage) / sensitivity);
+  double AC_Current = ( Current ) / ( sqrt(2) )*9;
+
+  //------TODO Temp code for simulating read-----
+  AC_Current = 0.90f;
+
+
+  //************************* Measure Power **************************************
+  power = (voltage * AC_Current);
+  
+  //************************* Measure Energy **************************************
+  long milisec = millis(); // calculate time in milliseconds 
+  float time = milisec/1000; // convert milliseconds to seconds 
+  if(Price>0)
+  {
+  EnergyUsedCurrentTime = (power * (time - lastTime))/3600.f;
+  }
+  lastTime = time; 
+  //Serial.print(" ");
+  //Serial.print("Energy current: ");
+  //Serial.println(EnergyUsedCurrentTime);
+  //Add energy consumed to meter
+  if(EnergyUsedCurrentTime > 0)
+  {
+    EEPROM.get(20,Energy);
+    Energy += EnergyUsedCurrentTime; //Watt-sec is again convert to Watt-Hr by dividing 1hr(3600sec)
+    EEPROM.put(20,Energy);
+  }
+
+  // print energy
+ 
+  // Unit=EEPROM.read(10);
+
+  Unit=Energy;
+  // EEPROM.write(10,Unit);
+  if(Serial.available()>0)
+  switch(Serial.read())
+  {
+  case 'r':
+  Serial.println("Receiving Messerges");
+  delay (1000);
+  SIM900A.println("AT+CNMI=2,2,0,0,0"); // Eeceiving Mode Enabled
+  delay(1000);
+  Serial.write ("Messege Received Sucessfully");
+    break;
+  }
+
+  
+  if (SIM900A.available())
+  {
+    
+  String incomingData = SIM900A.readString();
+  Serial.println("Received: ");
+  Serial.println(incomingData);
+
+  String codeString= "Recharge ";
+
+  if 
+    (incomingData.indexOf(codeString) != -1 && GsmSwitch==0) 
+    
+    {
+     GsmSwitch=1;
+     Serial.println("The string contains Recharge.");
+     Price=Price+100;
+     EEPROM.put(0,Price);
+     Serial.println("setted priced to 60");
+     LowPriceAssert = 0;
+     EEPROM.write(40, LowPriceAssert);
+    
+     RelayAssert = 0;
+     EEPROM.write(41, RelayAssert);
+    Serial.println("Sending Message please wait….");
+    SIM900A.println("AT+CMGF=1"); 
+    delay(1000);
+    Serial.println("Set SMS Number");
+    SIM900A.println("AT+CMGS=\"+9779808994365\"\r"); // Receiver’s Mobile Number
+    delay(1000);
+    Serial.println("Set SMS Content");
+    SIM900A.println(" Your Recharge of 100 is successfully done.");// Messsage content
+    delay(100);
+    Serial.println ("Done");
+    SIM900A.println((char)26);
+    delay(1000);
+    Serial.println ("Message sent succesfully");
+
+
+  } 
+  else 
+  {
+    
+    Serial.println("The string does not contain ReChArGe.");
+   
+  }
+  
+}
+
+
+
+  if(Price>0)
+  {
+    lcd.begin(20, 4); //LCD's number of columns and rows:
+    lcd.setCursor(0,0);
+    lcd.print("  THE BRIGHT LIGHT    ");
+    lcd.setCursor(0,1);
+    lcd.print("  AC ENERGY METER             ");
+    lcd.setCursor(0,2);
+    lcd.print("P = ");
+    lcd.print(power);
+    lcd.print("W "); 
+    lcd.print("E=");
+    lcd.print(Energy,1);
+    lcd.print("Wh");
+    lcd.setCursor(0,3);
+    lcd.print("U=");
+    lcd.print(Unit);
+    lcd.print("  ");
+  }
+
+  //------ this simulating switch for gsm recharge-------
+  if(digitalRead(gsmTempSwitch) == 0)
+  {
+    Price += 50;
+    EEPROM.put(0,Price);
+    //Serial.println("setted priced to 50");
+    LowPriceAssert = 0;
+    EEPROM.write(40, LowPriceAssert);
+    
+    RelayAssert = 0;
+    EEPROM.write(41, RelayAssert);
+    //Reset Energy unit 
+    Energy = 0;
+    EEPROM.put(20,Energy);
+    
+  }
+  //--Decrement price--
+  if(EnergyUsedCurrentTime > 0.f && Price >= 0)
+  {
+    EEPROM.get(0,Price);
+    Price = Price - (10.f*EnergyUsedCurrentTime);
+    if(Price < 0) { Price = 0;}
+    EEPROM.put(0,Price);
+  }
+  //Print price
+  if (Price>0)
+  {
+    lcd.print("Pr=Rs");
+    lcd.print(Price);
+  }
+  
+if(digitalRead(4)==HIGH && LimitSwitch==0)
+{
+  LimitSwitch = 1;
+  EEPROM.write(45, LimitSwitch);
+   Serial.println("Sending Message please wait….");
+  SIM900A.println("AT+CMGF=1"); //Text Mode initialisation
+  delay(1000);
+  Serial.println("Set SMS Number");
+  SIM900A.println("AT+CMGS=\"+9779808994365\"\r"); // Receiver’s Mobile Number
+  delay(1000);
+  Serial.println("Set SMS Content");
+  SIM900A.println("Your Pre-paid Energy Meter has been Breached.");// Messsage content
+  delay(100);
+  Serial.println ("Done");
+  SIM900A.println((char)26);// delay(1000);
+  Serial.println ("Message sent succesfully");
+  delay(10000);
+}
+
+
+if(Price <=20 && LowPriceAssert == 0)
+{
+  LowPriceAssert = 1;
+  EEPROM.write(40, LowPriceAssert);
+
+  Serial.println("Sending Message please wait….");
+  SIM900A.println("AT+CMGF=1"); //Text Mode initialisation
+  delay(1000);
+  Serial.println("Set SMS Number");
+  SIM900A.println("AT+CMGS=\"+9779808994365\"\r"); // Receiver’s Mobile Number
+  delay(1000);
+  Serial.println("Set SMS Content");
+  SIM900A.println("Your balance is less than 20.Please!! Recharge in time,Thank you!!.");// Messsage content
+  delay(100);
+  Serial.println ("Done");
+  SIM900A.println((char)26);// delay(1000);
+  Serial.println ("Message sent succesfully");
+  delay(10000);
+}
+if(Price>0)
+{
+  digitalWrite(RELAY_PIN,LOW);
+}
+
+if (Price==0 && RelayAssert == 0 )
+{
+  GsmSwitch=0;
+  EEPROM.write(82,GsmSwitch);
+  RelayAssert = 1;
+  EEPROM.write(41, RelayAssert);
+
+  SendMessage();
+  digitalWrite(RELAY_PIN, HIGH);
+  delay(2000);
+
+}
+//Serial.println(Price);
+
+   Serial.print(power);
+  Serial.print(" ");
+   Serial.print(Energy );
+    Serial.print(" ");
+   Serial.print(Unit );
+    Serial.print(" ");
+   Serial.println(Price );
+  delay(7000);
+  
+}
+
+void SendMessage()
+{
+Serial.println("Sending Message please wait….");
+SIM900A.println("AT+CMGF=1"); //Text Mode initialisation
+delay(1000);
+Serial.println("Set SMS Number");
+SIM900A.println("AT+CMGS=\"+9779808994365\"\r"); // Receiver’s Mobile Number
+delay(1000);
+Serial.println("Set SMS Content");
+SIM900A.println("You have no balance. Please recharge to use electricity.");// Messsage content
+delay(100);
+Serial.println ("Done");
+SIM900A.println((char)26);
+ delay(1000);
+Serial.println ("Message sent succesfully");
+  lcd.begin(20, 4); // set up the LCD's number of columns and rows:
+  lcd.setCursor(0,1);
+  lcd.print("     NO BALANCE   ");
+  lcd.setCursor(0,4);
+  lcd.print("   PLEASE RECHARGE  ");
+  delay(1000);
+}
+void RecieveMessage()
+{
+Serial.println("Receiving Messerges");
+delay (1000);
+SIM900A.println("AT+CNMI=2,2,0,0,0"); 
+delay(1000);
+Serial.write ("Messege Received Sucessfully");
+}
